@@ -10,12 +10,29 @@ import { tradingRoutes } from "./routes/trading.js";
 const PORT = parseInt(process.env.BFF_PORT || "3001", 10);
 const ENGINE_URL = process.env.ENGINE_URL || "http://localhost:8000";
 
+// Parse allowed origins from env or use defaults
+function getAllowedOrigins(): string[] {
+  const envOrigins = process.env.CORS_ORIGINS;
+  if (envOrigins) {
+    return envOrigins.split(",").map((o) => o.trim());
+  }
+  return ["http://localhost:3000", "http://localhost:3001"];
+}
+
 async function start() {
   const app = Fastify({ logger: true });
 
-  // CORS
+  // CORS — configurable via CORS_ORIGINS env var (comma-separated)
+  const allowedOrigins = getAllowedOrigins();
   await app.register(cors, {
-    origin: ["http://localhost:3000", "http://localhost:3001"],
+    origin: (origin, cb) => {
+      // Allow requests with no origin (curl, server-to-server)
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.includes(origin) || allowedOrigins.includes("*")) {
+        return cb(null, true);
+      }
+      return cb(new Error("Not allowed by CORS"), false);
+    },
     credentials: true,
   });
 

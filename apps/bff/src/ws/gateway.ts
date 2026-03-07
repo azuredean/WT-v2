@@ -27,32 +27,34 @@ const REDIS_CHANNELS = [
 ];
 
 export function setupWebSocketGateway(app: FastifyInstance) {
-  let redisSub: Redis | null = null;
+  // Redis in subscriber mode must be a DEDICATED connection (cannot run regular commands)
+  const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+  const redisSub = new Redis(redisUrl, {
+    lazyConnect: true,
+    maxRetriesPerRequest: null,
+  });
 
-  // Try to connect to Redis for Pub/Sub relay
-  try {
-    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-    redisSub = new Redis(redisUrl);
+  redisSub.on("connect", () => {
+    console.log("[WS Gateway] Redis subscriber connected");
+    for (const pattern of REDIS_CHANNELS) {
+      redisSub.psubscribe(pattern).catch(() => {});
+    }
+  });
 
-    redisSub.on("connect", () => {
-      console.log("[WS Gateway] Connected to Redis");
-      // Subscribe to patterns
-      for (const pattern of REDIS_CHANNELS) {
-        redisSub!.psubscribe(pattern);
-      }
-    });
+  redisSub.on("pmessage", (_pattern: string, channel: string, message: string) => {
+    broadcastToChannel(channel, message);
+  });
 
-    redisSub.on("pmessage", (_pattern: string, channel: string, message: string) => {
-      // Fan out to subscribed clients
-      broadcastToChannel(channel, message);
-    });
+  redisSub.on("error", (err: Error) => {
+    // Suppress noisy connection errors in dev — Redis is optional for Phase 1
+    if (!err.message.includes("ECONNREFUSED")) {
+      console.warn("[WS Gateway] Redis error:", err.message);
+    }
+  });
 
-    redisSub.on("error", (err: Error) => {
-      console.warn("[WS Gateway] Redis connection error:", err.message);
-    });
-  } catch {
-    console.warn("[WS Gateway] Redis not available, running without real-time relay");
-  }
+  redisSub.connect().catch(() => {
+    console.warn("[WS Gateway] Redis not available — running without real-time relay (demo mode)");
+  });
 
   app.get("/ws", { websocket: true }, (socket: WebSocket) => {
     const clientId = `client_${++clientIdCounter}`;

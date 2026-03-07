@@ -1,224 +1,109 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
-import {
-  createChart,
-  type IChartApi,
-  type ISeriesApi,
-  ColorType,
-  CrosshairMode,
-  type CandlestickData,
-  type HistogramData,
-  type Time,
-} from "lightweight-charts";
-import { useMarketStore, type Candle } from "@/stores/useMarketStore";
-import { api } from "@/lib/api-client";
-import { getWSClient } from "@/lib/ws-client";
+import { useEffect, useRef, memo } from "react";
+import { useMarketStore } from "@/stores/useMarketStore";
 
-function toChartCandle(c: Candle): CandlestickData<Time> {
-  return {
-    time: (c.time / 1000) as Time, // lightweight-charts expects seconds
-    open: c.open,
-    high: c.high,
-    low: c.low,
-    close: c.close,
+// Map our symbol format to TradingView format
+function toTradingViewSymbol(symbol: string, exchange: string): string {
+  const clean = symbol.replace("/", "");
+  const exchangeMap: Record<string, string> = {
+    binance: "BINANCE",
+    okx: "OKX",
+    bybit: "BYBIT",
   };
+  const tvExchange = exchangeMap[exchange] || "BINANCE";
+  return `${tvExchange}:${clean}`;
 }
 
-function toVolumeBar(c: Candle): HistogramData<Time> {
-  return {
-    time: (c.time / 1000) as Time,
-    value: c.volume,
-    color: c.close >= c.open ? "rgba(16, 185, 129, 0.4)" : "rgba(239, 68, 68, 0.4)",
+// Map our timeframes to TradingView intervals
+function toTradingViewInterval(timeframe: string): string {
+  const map: Record<string, string> = {
+    "1m": "1",
+    "5m": "5",
+    "15m": "15",
+    "1h": "60",
+    "4h": "240",
+    "1d": "D",
   };
+  return map[timeframe] || "60";
 }
 
-export function CandlestickChart() {
+function CandlestickChartInner() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
-
-  const { selectedSymbol, selectedExchange, selectedTimeframe, candles, setCandles, updateCandle } =
+  const { selectedSymbol, selectedExchange, selectedTimeframe } =
     useMarketStore();
 
-  // Initialize chart
   useEffect(() => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) return;
 
-    const chart = createChart(containerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#94a3b8",
-        fontSize: 12,
-        fontFamily: "'JetBrains Mono', monospace",
-      },
-      grid: {
-        vertLines: { color: "rgba(42, 46, 63, 0.5)" },
-        horzLines: { color: "rgba(42, 46, 63, 0.5)" },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { color: "rgba(59, 130, 246, 0.4)", width: 1, style: 2 },
-        horzLine: { color: "rgba(59, 130, 246, 0.4)", width: 1, style: 2 },
-      },
-      rightPriceScale: {
-        borderColor: "#2a2e3f",
-        scaleMargins: { top: 0.1, bottom: 0.25 },
-      },
-      timeScale: {
-        borderColor: "#2a2e3f",
-        timeVisible: true,
-        secondsVisible: false,
-      },
-      handleScale: { axisPressedMouseMove: true },
-      handleScroll: { vertTouchDrag: true },
+    // Clear previous widget
+    container.innerHTML = "";
+
+    const tvSymbol = toTradingViewSymbol(selectedSymbol, selectedExchange);
+    const interval = toTradingViewInterval(selectedTimeframe);
+
+    // Create TradingView Advanced Chart widget container
+    const widgetContainer = document.createElement("div");
+    widgetContainer.className = "tradingview-widget-container";
+    widgetContainer.style.height = "100%";
+    widgetContainer.style.width = "100%";
+
+    const widgetInner = document.createElement("div");
+    widgetInner.className = "tradingview-widget-container__widget";
+    widgetInner.style.height = "calc(100% - 32px)";
+    widgetInner.style.width = "100%";
+    widgetContainer.appendChild(widgetInner);
+
+    container.appendChild(widgetContainer);
+
+    // Load TradingView embed script
+    const script = document.createElement("script");
+    script.src =
+      "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+    script.type = "text/javascript";
+    script.async = true;
+    script.innerHTML = JSON.stringify({
+      autosize: true,
+      symbol: tvSymbol,
+      interval: interval,
+      timezone: "Etc/UTC",
+      theme: "dark",
+      style: "1",
+      locale: "zh_CN",
+      backgroundColor: "rgba(15, 17, 23, 1)",
+      gridColor: "rgba(42, 46, 63, 0.5)",
+      allow_symbol_change: true,
+      calendar: false,
+      hide_volume: false,
+      support_host: "https://www.tradingview.com",
+      studies: ["Volume@tv-basicstudies"],
     });
 
-    // Candlestick series
-    const candleSeries = chart.addCandlestickSeries({
-      upColor: "#10b981",
-      downColor: "#ef4444",
-      borderUpColor: "#10b981",
-      borderDownColor: "#ef4444",
-      wickUpColor: "#10b981",
-      wickDownColor: "#ef4444",
-    });
-
-    // Volume series (overlay at bottom)
-    const volumeSeries = chart.addHistogramSeries({
-      priceFormat: { type: "volume" },
-      priceScaleId: "volume",
-    });
-
-    chart.priceScale("volume").applyOptions({
-      scaleMargins: { top: 0.8, bottom: 0 },
-    });
-
-    chartRef.current = chart;
-    candleSeriesRef.current = candleSeries;
-    volumeSeriesRef.current = volumeSeries;
-
-    // Auto-resize
-    const handleResize = () => {
-      if (containerRef.current) {
-        chart.applyOptions({
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight,
-        });
-      }
-    };
-
-    const resizeObserver = new ResizeObserver(handleResize);
-    resizeObserver.observe(containerRef.current);
+    widgetContainer.appendChild(script);
 
     return () => {
-      resizeObserver.disconnect();
-      chart.remove();
-      chartRef.current = null;
-      candleSeriesRef.current = null;
-      volumeSeriesRef.current = null;
+      if (container) {
+        container.innerHTML = "";
+      }
     };
-  }, []);
-
-  // Fetch historical candles when symbol/timeframe/exchange changes
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchCandles() {
-      try {
-        const res = await api.market.candles(selectedSymbol, selectedTimeframe, 500);
-        if (!cancelled && res.data) {
-          setCandles(
-            res.data.map((c) => ({
-              time: c.time,
-              open: c.open,
-              high: c.high,
-              low: c.low,
-              close: c.close,
-              volume: c.volume,
-            }))
-          );
-        }
-      } catch (err) {
-        // API might not be running yet — load demo data
-        if (!cancelled) {
-          loadDemoData();
-        }
-      }
-    }
-
-    fetchCandles();
-    return () => { cancelled = true; };
-  }, [selectedSymbol, selectedTimeframe, selectedExchange, setCandles]);
-
-  // Update chart when candles change
-  useEffect(() => {
-    if (!candleSeriesRef.current || !volumeSeriesRef.current || candles.length === 0) return;
-
-    candleSeriesRef.current.setData(candles.map(toChartCandle));
-    volumeSeriesRef.current.setData(candles.map(toVolumeBar));
-  }, [candles]);
-
-  // Subscribe to real-time updates via WebSocket
-  useEffect(() => {
-    const ws = getWSClient();
-    const channel = `market:${selectedSymbol.replace("/", "")}:candle:${selectedTimeframe}`;
-
-    const unsub = ws.subscribe(channel, (data) => {
-      const c = data as Candle;
-      updateCandle(c);
-
-      // Update chart in real-time
-      if (candleSeriesRef.current) {
-        candleSeriesRef.current.update(toChartCandle(c));
-      }
-      if (volumeSeriesRef.current) {
-        volumeSeriesRef.current.update(toVolumeBar(c));
-      }
-    });
-
-    return unsub;
-  }, [selectedSymbol, selectedTimeframe, updateCandle]);
-
-  const loadDemoData = useCallback(() => {
-    // Generate demo candles for development
-    const now = Date.now();
-    const interval = 3600 * 1000; // 1h
-    const demoCandles: Candle[] = [];
-    let price = 72000;
-
-    for (let i = 500; i >= 0; i--) {
-      const change = (Math.random() - 0.48) * 500;
-      const open = price;
-      const close = price + change;
-      const high = Math.max(open, close) + Math.random() * 300;
-      const low = Math.min(open, close) - Math.random() * 300;
-      const volume = 100 + Math.random() * 2000;
-
-      demoCandles.push({
-        time: now - i * interval,
-        open,
-        high,
-        low,
-        close,
-        volume,
-      });
-
-      price = close;
-    }
-
-    setCandles(demoCandles);
-  }, [setCandles]);
+  }, [selectedSymbol, selectedExchange, selectedTimeframe]);
 
   return (
     <div className="flex h-full flex-col">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-1 flex items-center justify-between">
         <h3 className="text-sm font-medium text-text-secondary">
           {selectedSymbol} · {selectedTimeframe} · {selectedExchange}
         </h3>
+        <span className="text-xs text-text-muted">TradingView</span>
       </div>
-      <div ref={containerRef} className="flex-1" />
+      <div
+        ref={containerRef}
+        className="flex-1"
+        style={{ minHeight: "300px" }}
+      />
     </div>
   );
 }
+
+export const CandlestickChart = memo(CandlestickChartInner);

@@ -16,13 +16,14 @@ out/
 .env.local
 .env.*.local
 
-# IDE
+# IDE & Tools
 .vscode/
 .idea/
 *.swp
 *.swo
 .DS_Store
 ._*
+.claude/
 
 # Database
 data/postgres/
