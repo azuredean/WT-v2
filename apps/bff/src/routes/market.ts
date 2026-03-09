@@ -1,21 +1,24 @@
 import type { FastifyInstance } from "fastify";
+import {
+  getCandles,
+  getTicker,
+  getFundingRate,
+  getOIHistory,
+  getRetailLSRatio,
+  getTopLSRatio,
+  toBinanceSymbol,
+  binanceFetch,
+} from "../services/data-provider.js";
 
-// Binance public API — no API key required for market data
 const BINANCE_API = "https://fapi.binance.com";
 
-// Map our timeframes to Binance interval format
 const TF_MAP: Record<string, string> = {
   "1m": "1m", "5m": "5m", "15m": "15m",
   "1h": "1h", "4h": "4h", "1d": "1d",
 };
 
-// Map our symbol format (BTC/USDT) to Binance format (BTCUSDT)
-function toBinanceSymbol(symbol: string): string {
-  return symbol.replace("/", "");
-}
-
 export async function marketRoutes(app: FastifyInstance) {
-  // Real Binance candles
+  // Candles with data-provider fallback (Binance → CoinGecko anchor → simulation)
   app.get("/candles", async (request) => {
     const { symbol = "BTC/USDT", timeframe = "1h", limit = "500" } = request.query as {
       symbol?: string;
@@ -23,129 +26,77 @@ export async function marketRoutes(app: FastifyInstance) {
       limit?: string;
     };
 
-    try {
-      const binanceSymbol = toBinanceSymbol(symbol);
-      const interval = TF_MAP[timeframe] || "1h";
-      const url = `${BINANCE_API}/fapi/v1/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${limit}`;
-
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Binance API error: ${res.status}`);
-
-      const raw = await res.json() as number[][];
-
-      // Binance kline format: [openTime, open, high, low, close, volume, closeTime, ...]
-      const data = raw.map((k) => ({
-        time: k[0] as number,         // open time in ms
-        open: parseFloat(k[1] as string),
-        high: parseFloat(k[2] as string),
-        low: parseFloat(k[3] as string),
-        close: parseFloat(k[4] as string),
-        volume: parseFloat(k[5] as string),
-      }));
-
-      return { data, source: "binance", symbol, timeframe };
-    } catch (err) {
-      console.error("[Market] Binance candles error:", err);
-      return { data: [], source: "error", error: String(err) };
-    }
+    const interval = TF_MAP[timeframe] || "1h";
+    const { candles, source } = await getCandles(symbol, interval, parseInt(limit));
+    return { data: candles, source, symbol, timeframe };
   });
 
-  // Real Binance ticker
+  // Ticker with data-provider fallback
   app.get("/ticker", async (request) => {
     const { symbol = "BTC/USDT" } = request.query as { symbol?: string };
-
-    try {
-      const binanceSymbol = toBinanceSymbol(symbol);
-      const res = await fetch(`${BINANCE_API}/fapi/v1/ticker/24hr?symbol=${binanceSymbol}`);
-      if (!res.ok) throw new Error(`Binance ticker error: ${res.status}`);
-
-      const t = await res.json() as Record<string, string>;
-      return {
-        symbol,
-        price: parseFloat(t.lastPrice),
-        change24h: parseFloat(t.priceChangePercent),
-        volume24h: parseFloat(t.quoteVolume),
-      };
-    } catch (err) {
-      console.error("[Market] Binance ticker error:", err);
-      return { symbol, price: 0, change24h: 0, volume24h: 0 };
-    }
+    const ticker = await getTicker(symbol);
+    return ticker;
   });
 
-  // Real Binance funding rate
+  // Funding rate with data-provider fallback
   app.get("/funding", async (request) => {
     const { symbol = "BTC/USDT" } = request.query as { symbol?: string };
 
-    try {
-      const binanceSymbol = toBinanceSymbol(symbol);
-      const res = await fetch(`${BINANCE_API}/fapi/v1/fundingRate?symbol=${binanceSymbol}&limit=1`);
-      const data = await res.json() as Record<string, string>[];
+    const data = await getFundingRate(symbol, 1);
+    if (data.length > 0) {
       return {
         symbol,
-        fundingRate: data.length > 0 ? parseFloat(data[0].fundingRate) : 0,
-        fundingTime: data.length > 0 ? parseInt(data[0].fundingTime) : 0,
+        fundingRate: parseFloat(data[0].fundingRate),
+        fundingTime: data[0].fundingTime,
       };
-    } catch {
-      return { symbol, fundingRate: 0, fundingTime: 0 };
     }
+    return { symbol, fundingRate: 0, fundingTime: 0 };
   });
 
-  // Real Binance open interest
+  // Open interest (Binance → fallback 0)
   app.get("/oi", async (request) => {
     const { symbol = "BTC/USDT" } = request.query as { symbol?: string };
 
-    try {
-      const binanceSymbol = toBinanceSymbol(symbol);
-      const res = await fetch(`${BINANCE_API}/fapi/v1/openInterest?symbol=${binanceSymbol}`);
-      const data = await res.json() as Record<string, string>;
-      return {
-        symbol,
-        openInterest: parseFloat(data.openInterest),
-      };
-    } catch {
-      return { symbol, openInterest: 0 };
-    }
+    const raw = await binanceFetch<{ openInterest: string }>(
+      `${BINANCE_API}/fapi/v1/openInterest?symbol=${toBinanceSymbol(symbol)}`
+    );
+    return {
+      symbol,
+      openInterest: raw?.openInterest ? parseFloat(raw.openInterest) : 0,
+    };
   });
 
-  // Real Binance long/short ratio
+  // Global long/short ratio with data-provider fallback
   app.get("/ls-ratio", async (request) => {
     const { symbol = "BTC/USDT", period = "1h" } = request.query as { symbol?: string; period?: string };
 
-    try {
-      const binanceSymbol = toBinanceSymbol(symbol);
-      const res = await fetch(
-        `${BINANCE_API}/futures/data/globalLongShortAccountRatio?symbol=${binanceSymbol}&period=${period}&limit=1`
-      );
-      const data = await res.json() as Record<string, string>[];
+    const data = await getRetailLSRatio(symbol, period, 1);
+    if (data.length > 0) {
+      const d = data[0];
       return {
         symbol,
-        longAccount: data.length > 0 ? parseFloat(data[0].longAccount) : 0,
-        shortAccount: data.length > 0 ? parseFloat(data[0].shortAccount) : 0,
-        longShortRatio: data.length > 0 ? parseFloat(data[0].longShortRatio) : 0,
+        longAccount: parseFloat(d.longAccount),
+        shortAccount: parseFloat(d.shortAccount),
+        longShortRatio: parseFloat(d.longShortRatio),
       };
-    } catch {
-      return { symbol, longAccount: 0, shortAccount: 0, longShortRatio: 0 };
     }
+    return { symbol, longAccount: 0, shortAccount: 0, longShortRatio: 0 };
   });
 
-  // Real Binance top trader long/short ratio
+  // Top trader long/short ratio with data-provider fallback
   app.get("/top-ls-ratio", async (request) => {
     const { symbol = "BTC/USDT", period = "1h" } = request.query as { symbol?: string; period?: string };
 
-    try {
-      const binanceSymbol = toBinanceSymbol(symbol);
-      const res = await fetch(
-        `${BINANCE_API}/futures/data/topLongShortPositionRatio?symbol=${binanceSymbol}&period=${period}&limit=1`
-      );
-      const data = await res.json() as Record<string, string>[];
+    const data = await getTopLSRatio(symbol, period, 1);
+    if (data.length > 0) {
+      const d = data[0];
       return {
         symbol,
-        longAccount: data.length > 0 ? parseFloat(data[0].longAccount) : 0,
-        shortAccount: data.length > 0 ? parseFloat(data[0].shortAccount) : 0,
-        longShortRatio: data.length > 0 ? parseFloat(data[0].longShortRatio) : 0,
+        longAccount: parseFloat(d.longAccount),
+        shortAccount: parseFloat(d.shortAccount),
+        longShortRatio: parseFloat(d.longShortRatio),
       };
-    } catch {
-      return { symbol, longAccount: 0, shortAccount: 0, longShortRatio: 0 };
     }
+    return { symbol, longAccount: 0, shortAccount: 0, longShortRatio: 0 };
   });
 }

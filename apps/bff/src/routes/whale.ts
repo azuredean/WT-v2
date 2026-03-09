@@ -1,34 +1,83 @@
 import type { FastifyInstance } from "fastify";
+import {
+  getParticipantProfiles,
+  detectWhaleActivity,
+  calculateSME,
+  detectWhales,
+} from "../services/whale-detector.js";
 
 export async function whaleRoutes(app: FastifyInstance) {
-  app.get("/profiles", async () => {
-    return {
-      profiles: [
-        { type: "smart_whale", count: 587, totalPnl: 82300000, avgLeverage: 3.2, longRatio: 0.73 },
-        { type: "dumb_whale", count: 817, totalPnl: -37100000, avgLeverage: 8.5, longRatio: 0.62 },
-        { type: "market_maker", count: 124, totalPnl: 5200000, avgLeverage: 1.0, longRatio: 0.50 },
-        { type: "retail_herd", count: 45000, totalPnl: -18700000, avgLeverage: 15.0, longRatio: 0.70 },
-        { type: "arbitrageur", count: 89, totalPnl: 2100000, avgLeverage: 2.0, longRatio: 0.50 },
-      ],
-    };
+  /**
+   * GET /profiles
+   * Return estimated participant profiles from real trade data.
+   * Enhanced with 5-type classification: Smart Whale, Dumb Whale, Market Maker, Retail Herd, Arbitrageur
+   */
+  app.get("/profiles", async (request) => {
+    const { symbol } = request.query as { symbol?: string };
+    try {
+      const profiles = await getParticipantProfiles(symbol || "BTC/USDT");
+      return { profiles };
+    } catch (err) {
+      console.error("[Whale] Error fetching profiles:", err);
+      return { profiles: [], error: String(err) };
+    }
   });
 
-  app.get("/activity", async () => {
-    return {
-      activities: [
-        { id: "1", exchange: "binance", symbol: "BTC/USDT", participantType: "smart_whale", side: "buy", size: 2500000, price: 72150, timestamp: Date.now() - 120000 },
-        { id: "2", exchange: "okx", symbol: "BTC/USDT", participantType: "dumb_whale", side: "sell", size: 1800000, price: 72200, timestamp: Date.now() - 300000 },
-        { id: "3", exchange: "binance", symbol: "BTC/USDT", participantType: "smart_whale", side: "buy", size: 3200000, price: 71900, timestamp: Date.now() - 600000 },
-      ],
-    };
+  /**
+   * GET /activity
+   * Return recent large trade (whale) activity from Binance aggregated trades.
+   */
+  app.get("/activity", async (request) => {
+    const { symbol, limit } = request.query as { symbol?: string; limit?: string };
+    try {
+      let activities = await detectWhaleActivity(symbol || "BTC/USDT");
+
+      // Limit results
+      const maxResults = limit ? parseInt(limit, 10) : 50;
+      if (maxResults > 0 && activities.length > maxResults) {
+        activities = activities.slice(0, maxResults);
+      }
+
+      return { activities };
+    } catch (err) {
+      console.error("[Whale] Error detecting activity:", err);
+      return { activities: [], error: String(err) };
+    }
   });
 
-  app.get("/sme", async () => {
-    return {
-      sme: 1.47,
-      smartPnl: 82300000,
-      dumbPnl: -37100000,
-      retailPnl: -18700000,
-    };
+  /**
+   * GET /sme
+   * Return the Smart Money Edge index and PnL breakdown.
+   * SME > 1.0 = smart money winning, < 1.0 = dumb money winning
+   */
+  app.get("/sme", async (request) => {
+    const { symbol } = request.query as { symbol?: string };
+    try {
+      const sme = await calculateSME(symbol || "BTC/USDT");
+      return sme;
+    } catch (err) {
+      console.error("[Whale] Error calculating SME:", err);
+      return { sme: 1.0, smartPnl: 0, dumbPnl: 0, retailPnl: 0, error: String(err) };
+    }
+  });
+
+  /**
+   * GET /full-analysis
+   * Return complete whale detection result: activities + profiles + SME
+   */
+  app.get("/full-analysis", async (request) => {
+    const { symbol } = request.query as { symbol?: string };
+    try {
+      const result = await detectWhales(symbol || "BTC/USDT");
+      return result;
+    } catch (err) {
+      console.error("[Whale] Error in full analysis:", err);
+      return { 
+        activities: [], 
+        profiles: [], 
+        sme: { sme: 1.0, smartPnl: 0, dumbPnl: 0, retailPnl: 0 },
+        error: String(err) 
+      };
+    }
   });
 }

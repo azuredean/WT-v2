@@ -19,13 +19,82 @@ whale-tracker-v2/
 
 ## Features
 
+### Core Features
 - **TradingView Charts** — Real-time K-line charts powered by TradingView widget (BTC, ETH, SOL, BNB against USDT)
 - **Multi-Exchange Support** — Binance, OKX, Bybit market data integration
-- **Signal Fusion** — 8-strategy signal fusion engine (S1~S8)
-- **Whale Activity Monitor** — Real-time whale/smart money tracking
+- **8-Strategy Signal Fusion** — Advanced signal fusion engine with weighted strategies
+- **Whale Activity Monitor** — Real-time whale/smart money tracking with 5-type classification
 - **Position Management** — Portfolio overview with PnL tracking
-- **Backtesting** — Historical strategy backtesting (config UI ready)
+- **Backtesting** — Historical strategy backtesting with performance metrics
 - **Resizable Panels** — Professional trading terminal layout
+
+### Advanced Features (V2 Supplement)
+
+#### Market Participant Analysis
+- **5-Type Classification System**:
+  - Smart Whale (聪明鲸鱼): Counter-trend traders with high win rates
+  - Dumb Whale (愚蠢鲸鱼): Large positions with low win rates
+  - Market Maker (做市商): Liquidity providers with high turnover
+  - Retail Herd (散户群体): High leverage, small positions
+  - Arbitrageur (套利者): Cross-exchange arbitrage traders
+
+#### 8-Strategy Signal Fusion
+1. **S1 - Whale Tracking** (20%): Top trader vs retail L/S ratio divergence
+2. **S2 - Capital Concentration** (15%): Taker buy/sell volume ratio analysis
+3. **S3 - Funding Reversal** (12%): Extreme funding rate reversal signals
+4. **S4 - Liquidity Grab** (10%): Liquidation cascade + stabilization detection
+5. **S5 - OI Divergence** (8%): Price vs open interest divergence
+6. **S6 - Retail Counter** (15%): FOMO crowding detection + counter-trade
+7. **S7 - Stop Hunt** (10%): Wick analysis with volume spikes
+8. **S8 - Smart Money Edge (SME)** (10%): Whale vs retail flow analysis
+
+#### Liquidity & Flow Analysis
+- **Liquidation Fuel Analysis**: Cascade detection, cluster analysis
+- **Liquidity Vacuum Detection**: Order book depth monitoring, market maker retreat alerts
+- **OI vs Price Divergence**: 6 scenario classification (healthy uptrend, long crowding, short squeeze, etc.)
+- **Wyckoff Phase Detection**: 4-phase identification (Accumulation, Markup, Distribution, Markdown)
+- **Market Microstructure**: CVD divergence, orderbook asymmetry, large trade detection
+
+#### Risk Management
+- **3-Layer Anomaly Detection**:
+  - Layer 1: Data source validation
+  - Layer 2: Statistical outlier detection (Z-Score, IQR, Rolling)
+  - Layer 3: Market manipulation detection (flash crash, wash trading, spoofing)
+- **Data Quality Score (DQS)**: Real-time data quality assessment with recommendations
+- **Circuit Breaker**: Automatic trading pause on extreme conditions
+
+## API Endpoints
+
+### Signal Endpoints (`/api/signals`)
+- `GET /current` - Current fused signal from all 8 strategies
+- `GET /strategies` - Strategy configurations and weights
+- `GET /history` - Signal history (last 100 signals)
+- `GET /quality` - Data quality score (DQS)
+- `GET /anomalies` - Detected anomalies (3-layer detection)
+- `GET /circuit-breaker` - Circuit breaker status
+- `POST /circuit-breaker/reset` - Reset circuit breaker
+
+### Advanced Strategy Endpoints (`/api/signals/advanced`)
+- `GET /fomo` - FOMO crowding detection (S6 detail)
+- `GET /stop-hunt` - Stop hunt pattern detection (S7 detail)
+- `GET /liquidation` - Liquidation fuel analysis
+- `GET /liquidity-vacuum` - Liquidity vacuum detection
+- `GET /oi-divergence` - OI vs price divergence (6 scenarios)
+- `GET /wyckoff` - Wyckoff phase detection
+- `GET /microstructure` - Market microstructure analysis
+
+### Whale Endpoints (`/api/whale`)
+- `GET /profiles` - Participant profiles (5-type classification)
+- `GET /activity` - Recent whale activity feed
+- `GET /sme` - Smart Money Edge (SME) index
+- `GET /full-analysis` - Complete analysis (activities + profiles + SME)
+
+### Market Endpoints (`/api/market`)
+- `GET /ticker` - Real-time ticker data
+- `GET /candles` - Historical OHLCV candles
+- `GET /funding` - Funding rate history
+- `GET /open-interest` - Open interest history
+- `GET /long-short-ratio` - Top trader & retail L/S ratios
 
 ## Quick Start (Local Development)
 
@@ -120,8 +189,64 @@ Deploy `apps/web` directly. Set these environment variables:
 ## Development Roadmap
 
 - [x] Phase 1: Core platform structure, TradingView charts, market data
-- [ ] Phase 2: Real-time whale activity monitoring
+- [x] Phase 2: Real-time whale activity monitoring (5-type classification)
+- [x] Phase 2.5: Market participant profiling & liquidity analysis (V2 Supplement)
+  - [x] Enhanced participant classification (Smart/Dumb Whale, MM, Retail, Arbitrageur)
+  - [x] 8-strategy signal fusion with updated weights
+  - [x] FOMO crowding detection (S6)
+  - [x] Stop hunt reversal detection (S7)
+  - [x] Smart Money Edge (SME) index (S8)
+  - [x] Liquidation fuel & cascade analysis
+  - [x] Liquidity vacuum detection
+  - [x] OI vs price divergence (6 scenarios)
+  - [x] Wyckoff phase detection
+  - [x] Market microstructure analysis
+  - [x] 3-layer anomaly detection framework
+  - [x] Data quality score (DQS) & circuit breaker
 - [ ] Phase 3: Python signal engine integration
-- [ ] Phase 4: Anomaly detection & circuit breakers
-- [ ] Phase 5: Backtesting engine
+- [ ] Phase 4: External data source integration (CoinGlass, Glassnode)
+- [ ] Phase 5: Advanced backtesting with ML optimization
 - [ ] Phase 6: Live trading execution
+
+## Data Sources
+
+### Currently Integrated (Free)
+- **Binance Futures Public API**: K-lines, funding rate, OI, L/S ratios, aggregated trades
+- **CoinGecko Public API**: Fallback price data
+
+### Planned Integration
+- **CoinGlass** (Free tier): Liquidation data, exchange flows
+- **Glassnode** (Free tier): On-chain metrics
+- **Exchange APIs**: OKX, Bybit (currently skeleton only)
+
+## Key Concepts
+
+### Smart Money Edge (SME) Index
+The SME index measures the relative performance of smart money vs dumb money:
+- **SME > 1.5**: Smart money clearly winning, follow smart money direction
+- **SME 1.0-1.5**: Smart money slightly ahead
+- **SME < 1.0**: Dumb money winning, caution or wait
+
+### Data Quality Score (DQS)
+Real-time assessment of data reliability:
+- **DQS ≥ 85%**: Full confidence, normal trading
+- **DQS 70-85%**: Reduce position size
+- **DQS < 70%**: Pause trading, data quality insufficient
+
+### Circuit Breaker Triggers
+Automatic trading pause when:
+- Market drops >15% in 24h
+- Data quality score <50%
+- Flash crash detected (>5% move with quick recovery)
+- Black swan event (>15% move in 24h)
+
+## No API Keys Required
+
+All current features work with **public endpoints only**:
+- Binance Futures public API (no authentication)
+- CoinGecko public API (no authentication)
+- TradingView widget (embedded, no API key)
+
+Exchange API keys are only needed for:
+- Live trading execution (Phase 6)
+- Private account data (positions, orders)

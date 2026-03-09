@@ -45,15 +45,17 @@ export function setupWebSocketGateway(app: FastifyInstance) {
     broadcastToChannel(channel, message);
   });
 
+  let redisErrorLogged = false;
   redisSub.on("error", (err: Error) => {
-    // Suppress noisy connection errors in dev — Redis is optional for Phase 1
-    if (!err.message.includes("ECONNREFUSED")) {
-      console.warn("[WS Gateway] Redis error:", err.message);
+    // Suppress noisy connection/subscriber errors in dev — Redis is optional
+    if (!redisErrorLogged) {
+      console.warn("[WS Gateway] Redis error (suppressing repeats):", err.message);
+      redisErrorLogged = true;
     }
   });
 
   redisSub.connect().catch(() => {
-    console.warn("[WS Gateway] Redis not available — running without real-time relay (demo mode)");
+    console.warn("[WS Gateway] Redis not available — running without real-time relay (polling mode)");
   });
 
   app.get("/ws", { websocket: true }, (socket: WebSocket) => {

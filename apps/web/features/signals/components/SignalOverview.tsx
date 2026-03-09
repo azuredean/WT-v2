@@ -1,6 +1,7 @@
 "use client";
 
-import { useSignalStore, type StrategySignal } from "@/stores/useSignalStore";
+import { useSignals, type StrategyResult } from "@/hooks/useSignals";
+import { type StrategySignal } from "@/stores/useSignalStore";
 
 const strategyLabels: Record<string, string> = {
   s1_whale_tracking: "S1 巨鲸跟单",
@@ -13,11 +14,23 @@ const strategyLabels: Record<string, string> = {
   s8_smart_money_edge: "S8 聊明钱优势",
 };
 
+
+function mapStrategyToSignal(s: StrategyResult): StrategySignal {
+  return {
+    strategyId: s.id,
+    name: s.name,
+    direction: s.direction,
+    strength: s.strength,
+    confidence: s.confidence,
+    updatedAt: Date.now(),
+  };
+}
+
 function SignalBar({ signal }: { signal: StrategySignal }) {
   const isLong = signal.direction === "long";
   const isShort = signal.direction === "short";
   const barColor = isLong ? "bg-green" : isShort ? "bg-red" : "bg-text-muted";
-  const dirLabel = isLong ? "LONG" : isShort ? "SHORT" : "—";
+  const dirLabel = isLong ? "LONG" : isShort ? "SHORT" : "\u2014";
 
   return (
     <div className="flex items-center gap-2 py-1.5">
@@ -49,32 +62,35 @@ function SignalBar({ signal }: { signal: StrategySignal }) {
 }
 
 export function SignalOverview() {
-  const { strategies, fusedSignal, dataQualityScore } = useSignalStore();
+  const { data, isLoading, error } = useSignals();
 
-  // Demo data when no real signals
-  const demoStrategies: StrategySignal[] =
-    strategies.length > 0
-      ? strategies
-      : [
-          { strategyId: "s1_whale_tracking", name: "Whale Tracking", direction: "long", strength: 0.8, confidence: 0.85, updatedAt: Date.now() },
-          { strategyId: "s2_capital_concentration", name: "Capital Conc", direction: "long", strength: 0.7, confidence: 0.75, updatedAt: Date.now() },
-          { strategyId: "s3_funding_reversal", name: "Funding Rev", direction: "long", strength: 0.3, confidence: 0.6, updatedAt: Date.now() },
-          { strategyId: "s6_retail_counter", name: "Retail Counter", direction: "long", strength: 0.6, confidence: 0.7, updatedAt: Date.now() },
-          { strategyId: "s7_stop_hunt", name: "Stop Hunt", direction: "long", strength: 0.5, confidence: 0.65, updatedAt: Date.now() },
-          { strategyId: "s8_smart_money_edge", name: "SME", direction: "long", strength: 0.8, confidence: 0.9, updatedAt: Date.now() },
-        ];
+  const hasRealData = !!data && !error && data.strategies.length > 0;
 
-  const dqs = dataQualityScore || 0.94;
-  const fused = fusedSignal || {
-    direction: "long" as const,
-    strength: 0.72,
-    recommendedSize: 3.2,
-  };
+  const strategies: StrategySignal[] = hasRealData
+    ? data.strategies.map(mapStrategyToSignal)
+    : [];
+
+  const dqs = hasRealData ? data.dataQualityScore : 0;
+  const fused = hasRealData
+    ? {
+        direction: data.direction,
+        strength: data.strength,
+        recommendedSize: data.recommendedSize,
+      }
+    : { direction: "neutral" as const, strength: 0, recommendedSize: 0 };
 
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-text-primary">⚡ Signal Fusion</h3>
+        <h3 className="text-sm font-medium text-text-primary">
+          Signal Fusion
+          {isLoading && (
+            <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-blue" />
+          )}
+          {!hasRealData && !isLoading && (
+            <span className="ml-2 text-xs text-amber">等待数据...</span>
+          )}
+        </h3>
         <span
           className={`rounded px-2 py-0.5 text-xs font-mono ${
             dqs > 0.85
@@ -102,7 +118,11 @@ export function SignalOverview() {
           <span className="text-xs text-text-secondary">综合评分</span>
           <span
             className={`text-lg font-mono font-bold ${
-              fused.direction === "long" ? "text-green" : "text-red"
+              fused.direction === "long"
+                ? "text-green"
+                : fused.direction === "short"
+                ? "text-red"
+                : "text-text-muted"
             }`}
           >
             {fused.strength > 0 ? "+" : ""}
@@ -112,10 +132,18 @@ export function SignalOverview() {
         <div className="mt-1 flex items-center justify-between">
           <span
             className={`text-xs font-semibold ${
-              fused.direction === "long" ? "text-green" : "text-red"
+              fused.direction === "long"
+                ? "text-green"
+                : fused.direction === "short"
+                ? "text-red"
+                : "text-text-muted"
             }`}
           >
-            {fused.direction === "long" ? "⬆ 强烈做多" : "⬇ 强烈做空"}
+            {fused.direction === "long"
+              ? "强烈做多"
+              : fused.direction === "short"
+              ? "强烈做空"
+              : "中性"}
           </span>
           <span className="text-xs text-text-muted">
             建议仓位: {fused.recommendedSize}%
@@ -125,9 +153,15 @@ export function SignalOverview() {
 
       {/* Strategy breakdown */}
       <div className="flex-1 overflow-auto">
-        {demoStrategies.map((s) => (
-          <SignalBar key={s.strategyId} signal={s} />
-        ))}
+        {strategies.length > 0 ? (
+          strategies.map((s) => (
+            <SignalBar key={s.strategyId} signal={s} />
+          ))
+        ) : !isLoading ? (
+          <div className="flex items-center justify-center h-full text-xs text-text-muted">
+            交易所 API 不可用，需部署至海外服务器获取实时数据
+          </div>
+        ) : null}
       </div>
     </div>
   );

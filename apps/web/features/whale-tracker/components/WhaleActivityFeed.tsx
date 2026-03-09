@@ -1,23 +1,31 @@
 "use client";
 
-import { useWhaleStore, type WhaleActivity, type ParticipantType } from "@/stores/useWhaleStore";
+import { useWhaleActivity } from "@/hooks/useWhaleActivity";
+import { type WhaleActivity, type ParticipantType } from "@/stores/useWhaleStore";
 
 const typeLabels: Record<ParticipantType, { label: string; icon: string; color: string }> = {
-  smart_whale: { label: "聊明鲸", icon: "🧠", color: "text-green" },
-  dumb_whale: { label: "愚蠢鲸", icon: "🤡", color: "text-red" },
-  market_maker: { label: "做市商", icon: "🏦", color: "text-blue" },
-  retail_herd: { label: "散户", icon: "👥", color: "text-amber" },
-  arbitrageur: { label: "套利", icon: "🔄", color: "text-purple" },
+  smart_whale: { label: "聊明鲸", icon: "W", color: "text-green" },
+  dumb_whale: { label: "愚蠢鲸", icon: "D", color: "text-red" },
+  market_maker: { label: "做市商", icon: "M", color: "text-blue" },
+  retail_herd: { label: "散户", icon: "R", color: "text-amber" },
+  arbitrageur: { label: "套利", icon: "A", color: "text-purple" },
 };
 
+
 function ActivityItem({ activity }: { activity: WhaleActivity }) {
-  const typeInfo = typeLabels[activity.participantType];
+  const typeInfo = typeLabels[activity.participantType] ?? {
+    label: activity.participantType,
+    icon: "?",
+    color: "text-text-muted",
+  };
   const isBuy = activity.side === "buy";
   const timeAgo = getTimeAgo(activity.timestamp);
 
   return (
     <div className="flex items-center gap-2 rounded py-1.5 px-2 hover:bg-bg-hover transition-colors">
-      <span className="text-base">{typeInfo.icon}</span>
+      <span className="text-xs font-bold w-5 h-5 flex items-center justify-center rounded bg-bg-tertiary">
+        {typeInfo.icon}
+      </span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1">
           <span className={`text-xs font-medium ${typeInfo.color}`}>
@@ -58,40 +66,43 @@ function getTimeAgo(timestamp: number): string {
 }
 
 export function WhaleActivityFeed() {
-  const { activities, smartMoneyEdge } = useWhaleStore();
+  const { activities, sme, isLoading } = useWhaleActivity(20);
 
-  // Demo data
-  const demoActivities: WhaleActivity[] =
-    activities.length > 0
-      ? activities
-      : [
-          { id: "1", exchange: "binance", symbol: "BTC/USDT", participantType: "smart_whale", side: "buy", size: 2500000, price: 72150, timestamp: Date.now() - 120000 },
-          { id: "2", exchange: "okx", symbol: "BTC/USDT", participantType: "dumb_whale", side: "sell", size: 1800000, price: 72200, timestamp: Date.now() - 300000 },
-          { id: "3", exchange: "binance", symbol: "BTC/USDT", participantType: "smart_whale", side: "buy", size: 3200000, price: 71900, timestamp: Date.now() - 600000 },
-          { id: "4", exchange: "bybit", symbol: "BTC/USDT", participantType: "market_maker", side: "sell", size: 5000000, price: 72100, timestamp: Date.now() - 900000 },
-          { id: "5", exchange: "binance", symbol: "BTC/USDT", participantType: "retail_herd", side: "buy", size: 8000, price: 72300, timestamp: Date.now() - 1200000 },
-          { id: "6", exchange: "okx", symbol: "BTC/USDT", participantType: "smart_whale", side: "buy", size: 4100000, price: 71850, timestamp: Date.now() - 1800000 },
-        ];
-
-  const sme = smartMoneyEdge?.sme ?? 1.47;
+  const hasRealData = activities.length > 0;
+  const displayActivities = activities;
+  const smeValue = sme?.sme ?? 0;
 
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-text-primary">🐳 Whale Activity</h3>
+        <h3 className="text-sm font-medium text-text-primary">
+          Whale Activity
+          {isLoading && (
+            <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-blue" />
+          )}
+          {!hasRealData && !isLoading && (
+            <span className="ml-2 text-xs text-amber">等待数据...</span>
+          )}
+        </h3>
         <span
           className={`rounded px-2 py-0.5 text-xs font-mono ${
-            sme > 1 ? "bg-green/20 text-green" : "bg-red/20 text-red"
+            smeValue > 1 ? "bg-green/20 text-green" : "bg-red/20 text-red"
           }`}
         >
-          SME {sme.toFixed(2)}
+          SME {smeValue.toFixed(2)}
         </span>
       </div>
 
       <div className="flex-1 overflow-auto space-y-0.5">
-        {demoActivities.map((a) => (
-          <ActivityItem key={a.id} activity={a} />
-        ))}
+        {displayActivities.length > 0 ? (
+          displayActivities.map((a, idx) => (
+            <ActivityItem key={a.id || idx} activity={a} />
+          ))
+        ) : !isLoading ? (
+          <div className="flex items-center justify-center h-full text-xs text-text-muted">
+            交易所 API 不可用，需部署至海外服务器获取实时数据
+          </div>
+        ) : null}
       </div>
     </div>
   );

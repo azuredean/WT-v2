@@ -82,10 +82,16 @@ function CandlestickChartInner() {
 
     widgetContainer.appendChild(script);
 
+    // Cleanup: remove the widget container on dependency change / unmount.
+    // Use requestAnimationFrame to let TradingView's postMessage handlers
+    // finish before the iframe is destroyed, preventing "contentWindow is
+    // not available" errors.
     return () => {
-      if (container) {
-        container.innerHTML = "";
-      }
+      requestAnimationFrame(() => {
+        if (widgetContainer.parentNode) {
+          widgetContainer.parentNode.removeChild(widgetContainer);
+        }
+      });
     };
   }, [selectedSymbol, selectedExchange, selectedTimeframe]);
 
