@@ -89,6 +89,26 @@ export interface BacktestResult {
   startTime: number;
   endTime: number;
   executionTimeMs: number;
+  parameterScan?: {
+    best: {
+      entryThreshold: number;
+      positionSizeFraction: number;
+      totalReturnPercent: number;
+      sharpeRatio: number;
+    };
+    top: Array<{
+      entryThreshold: number;
+      positionSizeFraction: number;
+      totalReturnPercent: number;
+      sharpeRatio: number;
+    }>;
+  };
+}
+
+export interface BacktestScanConfig extends BacktestConfig {
+  scan?: boolean;
+  entryThresholdRange?: [number, number, number];
+  positionSizeRange?: [number, number, number];
 }
 
 // ---------------------------------------------------------------------------
@@ -474,5 +494,59 @@ export async function runBacktest(config: BacktestConfig): Promise<BacktestResul
     startTime: candles[0].time,
     endTime: candles[candles.length - 1].time,
     executionTimeMs: Date.now() - startMs,
+  };
+}
+
+function frange(start: number, end: number, step: number): number[] {
+  const out: number[] = [];
+  if (step <= 0) return [start];
+  for (let v = start; v <= end + 1e-9; v += step) out.push(Number(v.toFixed(6)));
+  return out;
+}
+
+export async function runBacktestWithScan(config: BacktestScanConfig): Promise<BacktestResult> {
+  const base = await runBacktest(config);
+  if (!config.scan) return base;
+
+  const [etStart, etEnd, etStep] = config.entryThresholdRange ?? [0.2, 0.5, 0.1];
+  const [psStart, psEnd, psStep] = config.positionSizeRange ?? [0.3, 0.7, 0.2];
+
+  const candidates: Array<{ entryThreshold: number; positionSizeFraction: number; totalReturnPercent: number; sharpeRatio: number }> = [];
+
+  for (const et of frange(etStart, etEnd, etStep)) {
+    for (const ps of frange(psStart, psEnd, psStep)) {
+      const r = await runBacktest({
+        ...config,
+        entryThreshold: et,
+        positionSizeFraction: ps,
+      });
+      candidates.push({
+        entryThreshold: et,
+        positionSizeFraction: ps,
+        totalReturnPercent: r.metrics.totalReturnPercent,
+        sharpeRatio: r.metrics.sharpeRatio,
+      });
+    }
+  }
+
+  const sorted = candidates.sort((a, b) => {
+    const aScore = a.totalReturnPercent * 0.7 + a.sharpeRatio * 0.3;
+    const bScore = b.totalReturnPercent * 0.7 + b.sharpeRatio * 0.3;
+    return bScore - aScore;
+  });
+
+  const best = sorted[0] ?? {
+    entryThreshold: config.entryThreshold ?? 0.3,
+    positionSizeFraction: config.positionSizeFraction ?? 0.5,
+    totalReturnPercent: base.metrics.totalReturnPercent,
+    sharpeRatio: base.metrics.sharpeRatio,
+  };
+
+  return {
+    ...base,
+    parameterScan: {
+      best,
+      top: sorted.slice(0, 5),
+    },
   };
 }

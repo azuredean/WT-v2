@@ -56,6 +56,37 @@ class ExchangeAggregator:
                 pass
         return rates
 
+    async def fetch_tickers(self, symbol: str) -> dict[str, ExchangeTicker]:
+        """Fetch ticker from all exchanges."""
+        tickers: dict[str, ExchangeTicker] = {}
+        for name, ex in self.exchanges.items():
+            try:
+                tickers[name] = await ex.fetch_ticker(symbol)
+            except Exception:
+                pass
+        return tickers
+
+    async def fetch_orderbook_aggregate(self, symbol: str, limit: int = 20) -> dict[str, Any]:
+        """Aggregate orderbooks from all exchanges into weighted depth."""
+        all_bids: list[list[float]] = []
+        all_asks: list[list[float]] = []
+        last_ts = 0
+
+        for ex in self.exchanges.values():
+            try:
+                ob = await ex.fetch_orderbook(symbol, limit)
+                all_bids.extend(ob.get("bids", []))
+                all_asks.extend(ob.get("asks", []))
+                last_ts = max(last_ts, int(ob.get("timestamp", 0) or 0))
+            except Exception:
+                continue
+
+        # sort & merge by price level (simple)
+        bids = sorted(all_bids, key=lambda x: x[0], reverse=True)[:limit]
+        asks = sorted(all_asks, key=lambda x: x[0])[:limit]
+
+        return {"bids": bids, "asks": asks, "timestamp": last_ts}
+
     async def fetch_open_interest_all(self, symbol: str) -> dict[str, float]:
         """Fetch open interest from all exchanges."""
         oi = {}

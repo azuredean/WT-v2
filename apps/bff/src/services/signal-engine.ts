@@ -597,6 +597,45 @@ const STRATEGY_WEIGHTS: Record<string, number> = {
   s8_smart_money_edge: 0.10,      // S8: Smart Money Edge (10%)
 };
 
+const STRATEGY_DESCRIPTIONS: Record<string, string> = {
+  s1_whale_tracking: "Track top trader positions vs retail",
+  s2_capital_concentration: "Detect capital flow concentration via taker buy/sell",
+  s3_funding_reversal: "Extreme funding rate reversal signal",
+  s4_liquidity_grab: "Entry after liquidation cascade + stabilization",
+  s5_oi_divergence: "Price vs open interest divergence detection",
+  s6_retail_counter: "Counter-trade extreme retail/FOMO positioning",
+  s7_stop_hunt: "Detect stop hunt wicks with volume spikes",
+  s8_smart_money_edge: "SME index from whale vs retail flow",
+};
+
+const STRATEGY_ENABLED: Record<string, boolean> = {
+  s1_whale_tracking: true,
+  s2_capital_concentration: true,
+  s3_funding_reversal: true,
+  s4_liquidity_grab: true,
+  s5_oi_divergence: true,
+  s6_retail_counter: true,
+  s7_stop_hunt: true,
+  s8_smart_money_edge: true,
+};
+
+export function updateStrategyWeights(weights: Partial<Record<string, number>>): Record<string, number> {
+  for (const [id, w] of Object.entries(weights)) {
+    if (!(id in STRATEGY_WEIGHTS)) continue;
+    if (typeof w !== "number" || Number.isNaN(w)) continue;
+    STRATEGY_WEIGHTS[id] = clamp(w, 0, 1);
+  }
+  return { ...STRATEGY_WEIGHTS };
+}
+
+export function updateStrategyEnabled(enabledMap: Partial<Record<string, boolean>>): Record<string, boolean> {
+  for (const [id, enabled] of Object.entries(enabledMap)) {
+    if (!(id in STRATEGY_ENABLED)) continue;
+    STRATEGY_ENABLED[id] = !!enabled;
+  }
+  return { ...STRATEGY_ENABLED };
+}
+
 // ---------------------------------------------------------------------------
 // Signal history (in-memory ring buffer)
 // ---------------------------------------------------------------------------
@@ -642,7 +681,7 @@ function computeDataQualityScore(strategies: StrategyResult[]): number {
 // ---------------------------------------------------------------------------
 
 export async function computeSignal(symbol: string = "BTC/USDT"): Promise<FusedSignal> {
-  const strategies = await Promise.all([
+  const allStrategies = await Promise.all([
     s1WhaleTracking(symbol),
     s2CapitalConcentration(symbol),
     s3FundingReversal(symbol),
@@ -652,6 +691,21 @@ export async function computeSignal(symbol: string = "BTC/USDT"): Promise<FusedS
     s7StopHunt(symbol),
     s8SmartMoneyEdge(symbol),
   ]);
+
+  const strategies = allStrategies.filter((s) => STRATEGY_ENABLED[s.id] !== false);
+
+  if (strategies.length === 0) {
+    return {
+      symbol,
+      direction: "neutral",
+      strength: 0,
+      confidence: 0,
+      recommendedSize: 0,
+      dataQualityScore: 0,
+      strategies: [],
+      timestamp: Date.now(),
+    };
+  }
 
   let weightedStrength = 0;
   let totalWeight = 0;
@@ -705,16 +759,13 @@ export interface StrategyConfig {
 }
 
 export function getStrategyConfigs(): StrategyConfig[] {
-  return [
-    { id: "s1_whale_tracking", name: "Whale Tracking", description: "Track top trader positions vs retail", weight: 0.20, enabled: true },
-    { id: "s2_capital_concentration", name: "Capital Concentration", description: "Detect capital flow concentration via taker buy/sell", weight: 0.15, enabled: true },
-    { id: "s3_funding_reversal", name: "Funding Reversal", description: "Extreme funding rate reversal signal", weight: 0.10, enabled: true },
-    { id: "s4_liquidity_grab", name: "Liquidity Grab", description: "Entry after liquidation cascade + stabilization", weight: 0.10, enabled: true },
-    { id: "s5_oi_divergence", name: "OI Divergence", description: "Price vs open interest divergence detection", weight: 0.10, enabled: true },
-    { id: "s6_retail_counter", name: "Retail Counter", description: "Counter-trade extreme retail positioning", weight: 0.10, enabled: true },
-    { id: "s7_stop_hunt", name: "Stop Hunt", description: "Detect stop hunt wicks with volume spikes", weight: 0.10, enabled: true },
-    { id: "s8_smart_money_edge", name: "Smart Money Edge", description: "SME index from whale vs retail flow", weight: 0.15, enabled: true },
-  ];
+  return Object.keys(STRATEGY_WEIGHTS).map((id) => ({
+    id,
+    name: id,
+    description: STRATEGY_DESCRIPTIONS[id] || "",
+    weight: STRATEGY_WEIGHTS[id],
+    enabled: STRATEGY_ENABLED[id] !== false,
+  }));
 }
 
 // Re-export utilities for use by other modules

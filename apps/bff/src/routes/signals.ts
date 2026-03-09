@@ -1,5 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import { computeSignal, getSignalHistory, getStrategyConfigs } from "../services/signal-engine.js";
+import {
+  computeSignal,
+  getSignalHistory,
+  getStrategyConfigs,
+  updateStrategyWeights,
+  updateStrategyEnabled,
+} from "../services/signal-engine.js";
 import {
   detectFOMOCrowding,
   detectStopHunt,
@@ -14,6 +20,14 @@ import {
   detectAnomalies,
   CircuitBreaker,
 } from "../services/anomaly-detection.js";
+import {
+  getCoinGlassLiquidationHistory,
+  getCoinGlassExchangeFlow,
+} from "../services/coinglass-provider.js";
+import {
+  getGlassnodeExchangeBalance,
+  getGlassnodeWhaleBalance,
+} from "../services/glassnode-provider.js";
 
 export async function signalRoutes(app: FastifyInstance) {
   /**
@@ -47,6 +61,26 @@ export async function signalRoutes(app: FastifyInstance) {
    */
   app.get("/strategies", async () => {
     return { strategies: getStrategyConfigs() };
+  });
+
+  /**
+   * POST /strategies/weights
+   * Update strategy weights at runtime
+   */
+  app.post("/strategies/weights", async (request) => {
+    const body = (request.body || {}) as { weights?: Record<string, number> };
+    const updated = updateStrategyWeights(body.weights || {});
+    return { success: true, weights: updated };
+  });
+
+  /**
+   * POST /strategies/enabled
+   * Enable/disable strategies at runtime
+   */
+  app.post("/strategies/enabled", async (request) => {
+    const body = (request.body || {}) as { enabled?: Record<string, boolean> };
+    const updated = updateStrategyEnabled(body.enabled || {});
+    return { success: true, enabled: updated };
   });
 
   /**
@@ -111,12 +145,50 @@ export async function signalRoutes(app: FastifyInstance) {
   app.get("/advanced/liquidation", async (request) => {
     const { symbol } = request.query as { symbol?: string };
     try {
-      const result = await analyzeLiquidationFuel(symbol || "BTC/USDT");
+      const sym = symbol || "BTC/USDT";
+      const result = await analyzeLiquidationFuel(sym);
       return result;
     } catch (err) {
       console.error("[Signals] Error analyzing liquidation:", err);
       return { error: String(err) };
     }
+  });
+
+  /**
+   * GET /external/coinglass
+   * Coinglass free-tier data passthrough (requires API key)
+   */
+  app.get("/external/coinglass", async (request) => {
+    const { symbol } = request.query as { symbol?: string };
+    const sym = symbol || "BTC/USDT";
+    const [liquidation, netflow] = await Promise.all([
+      getCoinGlassLiquidationHistory(sym),
+      getCoinGlassExchangeFlow(sym),
+    ]);
+    return {
+      symbol: sym,
+      hasApiKey: !!process.env.COINGLASS_API_KEY,
+      liquidation,
+      netflow,
+    };
+  });
+
+  /**
+   * GET /external/glassnode
+   * Glassnode free-tier data passthrough (requires API key)
+   */
+  app.get("/external/glassnode", async (request) => {
+    const { asset = "BTC" } = request.query as { asset?: string };
+    const [exchangeBalance, whaleBalance] = await Promise.all([
+      getGlassnodeExchangeBalance(asset),
+      getGlassnodeWhaleBalance(asset),
+    ]);
+    return {
+      asset,
+      hasApiKey: !!process.env.GLASSNODE_API_KEY,
+      exchangeBalance,
+      whaleBalance,
+    };
   });
 
   /**

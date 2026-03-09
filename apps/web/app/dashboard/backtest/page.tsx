@@ -49,6 +49,20 @@ interface BacktestResult {
   startTime: number;
   endTime: number;
   executionTimeMs: number;
+  parameterScan?: {
+    best: {
+      entryThreshold: number;
+      positionSizeFraction: number;
+      totalReturnPercent: number;
+      sharpeRatio: number;
+    };
+    top: Array<{
+      entryThreshold: number;
+      positionSizeFraction: number;
+      totalReturnPercent: number;
+      sharpeRatio: number;
+    }>;
+  };
 }
 
 interface BacktestConfig {
@@ -61,6 +75,9 @@ interface BacktestConfig {
   maxLeverage: number;
   stopLoss: number;
   takeProfit: number;
+  scan?: boolean;
+  entryThresholdRange?: [number, number, number];
+  positionSizeRange?: [number, number, number];
 }
 
 async function runBacktest(config: BacktestConfig): Promise<BacktestResult> {
@@ -199,6 +216,7 @@ export default function BacktestPage() {
   const [maxLeverage, setMaxLeverage] = useState(3);
   const [stopLoss, setStopLoss] = useState(0.03);
   const [takeProfit, setTakeProfit] = useState(0.06);
+  const [scan, setScan] = useState(false);
 
   const mutation = useMutation<BacktestResult, Error, BacktestConfig>({
     mutationFn: runBacktest,
@@ -215,6 +233,9 @@ export default function BacktestPage() {
       maxLeverage,
       stopLoss,
       takeProfit,
+      scan,
+      entryThresholdRange: [0.2, 0.6, 0.1],
+      positionSizeRange: [0.3, 0.9, 0.2],
     });
   };
 
@@ -361,6 +382,14 @@ export default function BacktestPage() {
           >
             {mutation.isPending ? "回测中..." : "开始回测"}
           </button>
+          <label className="flex items-center gap-2 text-xs text-text-muted">
+            <input
+              type="checkbox"
+              checked={scan}
+              onChange={(e) => setScan(e.target.checked)}
+            />
+            同时执行参数搜索（entryThreshold × positionSize）
+          </label>
           {mutation.isError && (
             <div className="rounded-md bg-red/10 border border-red/20 p-2 text-xs text-red">
               {mutation.error.message}
@@ -533,6 +562,39 @@ export default function BacktestPage() {
                           <td className="px-2 py-1.5 text-text-muted">
                             {formatDate(t.entryTime)}
                           </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {result.parameterScan && (
+              <div>
+                <div className="text-xs text-text-muted mb-2">参数搜索结果（Top 5）</div>
+                <div className="rounded-lg border border-border overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-bg-tertiary text-text-muted">
+                        <th className="px-2 py-1.5 text-left">#</th>
+                        <th className="px-2 py-1.5 text-right">Entry Threshold</th>
+                        <th className="px-2 py-1.5 text-right">Position Size</th>
+                        <th className="px-2 py-1.5 text-right">Return%</th>
+                        <th className="px-2 py-1.5 text-right">Sharpe</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.parameterScan.top.map((row, i) => (
+                        <tr key={i} className="border-t border-border">
+                          <td className="px-2 py-1.5">{i + 1}</td>
+                          <td className="px-2 py-1.5 text-right font-mono">{row.entryThreshold.toFixed(2)}</td>
+                          <td className="px-2 py-1.5 text-right font-mono">{row.positionSizeFraction.toFixed(2)}</td>
+                          <td className={`px-2 py-1.5 text-right font-mono ${row.totalReturnPercent >= 0 ? "text-green" : "text-red"}`}>
+                            {row.totalReturnPercent >= 0 ? "+" : ""}
+                            {(row.totalReturnPercent * 100).toFixed(2)}%
+                          </td>
+                          <td className="px-2 py-1.5 text-right font-mono">{row.sharpeRatio.toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>

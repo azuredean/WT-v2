@@ -5,18 +5,30 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .api.router import api_router
+from .core.exchange.aggregator import ExchangeAggregator
+from .core.exchange.binance import BinanceExchange
+from .core.exchange.okx import OKXExchange
+from .core.exchange.bybit import BybitExchange
+from .core import runtime
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     print("🐳 Whale Tracker Engine starting...")
-    # TODO: Initialize database connections
-    # TODO: Start market ingester workers
-    # TODO: Start signal processor workers
+    # Initialize exchange aggregator
+    runtime.aggregator = ExchangeAggregator(
+        [
+            BinanceExchange(settings.binance_api_key, settings.binance_api_secret),
+            OKXExchange(settings.okx_api_key, settings.okx_api_secret, settings.okx_passphrase),
+            BybitExchange(settings.bybit_api_key, settings.bybit_api_secret),
+        ]
+    )
+    await runtime.aggregator.connect_all()
     yield
     print("🐳 Whale Tracker Engine shutting down...")
-    # TODO: Cleanup connections
+    if runtime.aggregator:
+        await runtime.aggregator.disconnect_all()
 
 
 app = FastAPI(

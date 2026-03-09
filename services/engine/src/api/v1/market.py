@@ -1,6 +1,7 @@
 """Market data API endpoints."""
 
 from fastapi import APIRouter, Query
+from ...core import runtime
 
 router = APIRouter()
 
@@ -11,29 +12,45 @@ async def get_candles(
     timeframe: str = Query(default="1h"),
     limit: int = Query(default=500, le=2000),
 ):
-    """Get historical OHLCV candles.
+    """Get historical OHLCV candles."""
+    if runtime.aggregator is None:
+        return {"symbol": symbol, "timeframe": timeframe, "data": [], "source": "unavailable"}
 
-    Phase 1: Returns from TimescaleDB.
-    Currently returns placeholder data.
-    """
-    # TODO: Query TimescaleDB for historical candles
+    candles = await runtime.aggregator.fetch_candles(symbol, timeframe, limit=limit)
     return {
         "symbol": symbol,
         "timeframe": timeframe,
-        "data": [],
-        "source": "placeholder",
+        "data": [
+            {
+                "time": c.time,
+                "open": c.open,
+                "high": c.high,
+                "low": c.low,
+                "close": c.close,
+                "volume": c.volume,
+            }
+            for c in candles
+        ],
+        "source": "aggregated",
     }
 
 
 @router.get("/ticker")
 async def get_ticker(symbol: str = Query(default="BTC/USDT")):
     """Get current ticker for a symbol."""
-    # TODO: Get from Redis cache
+    if runtime.aggregator is None:
+        return {"symbol": symbol, "price": 0, "change24h": 0, "volume24h": 0}
+
+    tickers = await runtime.aggregator.fetch_tickers(symbol)
+    if not tickers:
+        return {"symbol": symbol, "price": 0, "change24h": 0, "volume24h": 0}
+
+    vals = list(tickers.values())
     return {
         "symbol": symbol,
-        "price": 0,
-        "change24h": 0,
-        "volume24h": 0,
+        "price": sum(t.price for t in vals) / len(vals),
+        "change24h": sum(t.change_24h for t in vals) / len(vals),
+        "volume24h": sum(t.volume_24h for t in vals),
     }
 
 
@@ -43,38 +60,42 @@ async def get_orderbook(
     depth: int = Query(default=20, le=100),
 ):
     """Get aggregated orderbook across exchanges."""
-    # TODO: Get from Redis cache, aggregate across exchanges
+    if runtime.aggregator is None:
+        return {"symbol": symbol, "bids": [], "asks": [], "timestamp": 0}
+
+    ob = await runtime.aggregator.fetch_orderbook_aggregate(symbol, limit=depth)
     return {
         "symbol": symbol,
-        "bids": [],
-        "asks": [],
-        "timestamp": 0,
+        "bids": ob.get("bids", []),
+        "asks": ob.get("asks", []),
+        "timestamp": ob.get("timestamp", 0),
     }
 
 
 @router.get("/funding")
 async def get_funding_rate(symbol: str = Query(default="BTC/USDT")):
     """Get current funding rate across exchanges."""
+    if runtime.aggregator is None:
+        return {"symbol": symbol, "rates": {}, "average": 0}
+
+    rates = await runtime.aggregator.fetch_funding_rates(symbol)
+    avg = sum(rates.values()) / len(rates) if rates else 0
     return {
         "symbol": symbol,
-        "rates": {
-            "binance": 0,
-            "okx": 0,
-            "bybit": 0,
-        },
-        "average": 0,
+        "rates": rates,
+        "average": avg,
     }
 
 
 @router.get("/oi")
 async def get_open_interest(symbol: str = Query(default="BTC/USDT")):
     """Get open interest across exchanges."""
+    if runtime.aggregator is None:
+        return {"symbol": symbol, "total": 0, "by_exchange": {}}
+
+    by_exchange = await runtime.aggregator.fetch_open_interest_all(symbol)
     return {
         "symbol": symbol,
-        "total": 0,
-        "by_exchange": {
-            "binance": 0,
-            "okx": 0,
-            "bybit": 0,
-        },
+        "total": sum(by_exchange.values()),
+        "by_exchange": by_exchange,
     }

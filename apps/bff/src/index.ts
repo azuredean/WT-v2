@@ -6,6 +6,7 @@ import { marketRoutes } from "./routes/market.js";
 import { signalRoutes } from "./routes/signals.js";
 import { whaleRoutes } from "./routes/whale.js";
 import { tradingRoutes } from "./routes/trading.js";
+import { setEngineBaseUrl } from "./services/engine-client.js";
 
 const PORT = parseInt(process.env.BFF_PORT || "3001", 10);
 const ENGINE_URL = process.env.ENGINE_URL || "http://localhost:8000";
@@ -21,6 +22,7 @@ function getAllowedOrigins(): string[] {
 
 async function start() {
   const app = Fastify({ logger: true });
+  setEngineBaseUrl(ENGINE_URL);
 
   // CORS — configurable via CORS_ORIGINS env var (comma-separated)
   const allowedOrigins = getAllowedOrigins();

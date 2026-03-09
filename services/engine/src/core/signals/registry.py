@@ -52,7 +52,7 @@ class StrategyRegistry:
         for module_name in builtin_modules:
             try:
                 module = importlib.import_module(
-                    f".{module_name}", package="src.core.signals"
+                    f".{module_name}", package=__package__
                 )
                 # Each module should have a `Strategy` class
                 strategy_cls = getattr(module, "Strategy", None)
